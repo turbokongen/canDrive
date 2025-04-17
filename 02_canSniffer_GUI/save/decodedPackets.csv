@@ -1,4 +1,4 @@
-SID diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,65,02,40,00,00
-Tech2 Bus check diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,28,02,40,00,00
-DAH diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,18,02,40,00,00
 SPA Diagnostic session request,220,Diagnostic session,00,00,08,3F,81,00,66,02,40,00,00
+DAH diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,18,02,40,00,00
+Tech2 Bus check diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,28,02,40,00,00
+SID diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,65,02,40,00,00

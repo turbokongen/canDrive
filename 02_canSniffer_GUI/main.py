@@ -29,6 +29,12 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
     def __init__(self):
         super(canSnifferGUI, self).__init__()
         self.setupUi(self)
+        self.mainMessageTableWidget.setMouseTracking(True)
+        self.decodedMessagesTableWidget.setMouseTracking(True)
+        self.txTable.setMouseTracking(True)
+        self.mainMessageTableWidget.itemEntered.connect(self.showBitTooltip)
+        self.decodedMessagesTableWidget.itemEntered.connect(self.showBitTooltip)
+        self.txTable.itemEntered.connect(self.showBitTooltip)
         self.portScanButton.clicked.connect(self.scanPorts)
         self.portConnectButton.clicked.connect(self.serialPortConnect)
         self.portDisconnectButton.clicked.connect(self.serialPortDisconnect)
@@ -104,6 +110,20 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.txTable.setColumnWidth(3, 88)  # Kolonne 3 = Ext.ID i txTable
         #self.txTable.setColumnWidth(4, 600)  # Kolonne 4 = Data i txTable
         self.showFullScreen()
+
+    def showBitTooltip(self, item):
+        column = item.column()
+        if column >= 6 and column <= 13:  # D0 til D7
+            value = item.text().strip()
+            try:
+                byte = int(value, 16)
+                bitstring = format(byte, '08b')  # Binær med ledende nuller
+                tooltip = f"Byte: {value.upper()}\nBits: {bitstring}"
+            except ValueError:
+                tooltip = "Ugyldig hex-verdi"
+            item.setToolTip(tooltip)
+        else:
+            item.setToolTip("")
 
     def stopPlayBackCallback(self):
         try:
