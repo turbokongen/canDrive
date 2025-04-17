@@ -173,7 +173,8 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.playBackProgressBar.setValue(int((maxRows - row) / maxRows * 100))
         self.playbackMainTableIndex -= 1
 
-        self.serialWriterThread.write(txBuf)
+        self.sendPacketToESP32(row)
+
 
     def playbackMainTableCallback(self):
         self.playbackMainTableButton.setVisible(False)
@@ -188,6 +189,46 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
     def clearTableCallback(self):
         self.idDict.clear()
         self.mainMessageTableWidget.setRowCount(0)
+
+    def sendPacketToESP32(self, row):
+        try:
+            if not self.serialController or not self.serialController.is_open:
+                QMessageBox.warning(self, "Serial", "Seriell port er ikke åpen.")
+                return
+
+            id_item = self.txTable.item(row, 0)
+            rtr_item = self.txTable.item(row, 2)
+            ide_item = self.txTable.item(row, 3)
+            data_item = self.txTable.item(row, 4)
+
+            if not id_item or not data_item:
+                QMessageBox.warning(self, "Datafeil", "Mangler ID eller Data.")
+                return
+
+            can_id = id_item.text().strip().upper()
+            rtr = rtr_item.text().strip().zfill(2).upper() if rtr_item else "00"
+            ide = ide_item.text().strip().zfill(2).upper() if ide_item else "00"
+            data_str = data_item.text().strip().replace(" ", "").upper()
+
+            # 🔍 Valider RTR og IDE
+            if rtr not in ["00", "01"]:
+                QMessageBox.warning(self, "Invalid RTR", f"Invalid RTR-value: {rtr}\nUse 00 or 01.")
+                return
+            if ide not in ["00", "01"]:
+                QMessageBox.warning(self, "Invalid IDE", f"Invalid IDE-value: {ide}\nUse 00 or 01.")
+                return
+
+            # Fyll opp til 8 byte
+            if len(data_str) < 16:
+                data_str += "00" * ((16 - len(data_str)) // 2)
+
+            message = f"{can_id},{rtr},{ide},{data_str}\n"
+            self.serialController.write(message.encode("ascii"))
+
+            print(f"Sendt til ESP32:\n{message.strip()}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Serial-feil", f"Feil ved sending:\n{e}")
 
     def sendDecodedPacketCallback(self):
         self.newTxTableRowCallback()
@@ -273,21 +314,13 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
                 self.mainMessageTableWidget.setRowHidden(i, True)
 
     def sendTxTableCallback(self):
-        self.setRadioButton(self.txDataRadioButton, 2)
-        for row in range(self.txTable.rowCount()):
-            if self.txTable.item(row, 0).isSelected():
-                txBuf = ""
-                for i in range(self.txTable.columnCount()):
-                    subStr = self.txTable.item(row, i).text() + ","
-                    if not len(subStr) % 2:
-                        subStr = '0' + subStr
-                    txBuf += subStr
-                txBuf = txBuf[:-1] + '\n'
-                if self.repeatedDelayCheckBox.isChecked():
-                    self.serialWriterThread.setRepeatedWriteDelay(self.repeatTxDelayValue.value())
-                else:
-                    self.serialWriterThread.setRepeatedWriteDelay(0)
-                self.serialWriterThread.write(txBuf)
+        row = self.txTable.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "No rows selected", "Select a row from table before sending.")
+            return
+
+        self.sendPacketToESP32(row)
+
 
     def fileLoadingFinishedCallback(self):
         self.abortSessionLoadingButton.setEnabled(False)
@@ -504,9 +537,11 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
         if self.activeChannelComboBox.isEnabled():
             txBuf = [0x42, self.activeChannelComboBox.currentIndex()]   # TX FORWARDER
-            self.serialWriterThread.write(txBuf)
+            self.sendPacketToESP32(row)
+
             txBuf = [0x41, 1 << self.activeChannelComboBox.currentIndex()]  # RX FORWARDER
-            self.serialWriterThread.write(txBuf)
+            self.sendPacketToESP32(row)
+
 
         self.startTime = time.time()
 
