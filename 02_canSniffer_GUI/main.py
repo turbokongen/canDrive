@@ -1,4 +1,4 @@
-# canDrive @ 2020
+# canDrive @ 2025
 # To create a one-file executable, call: pyinstaller -F main.spec
 #----------------------------------------------------------------
 import serial
@@ -49,6 +49,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.showSendingTableCheckBox.clicked.connect(self.showSendingTableButtonCallback)
         self.addToDecodedPushButton.clicked.connect(self.addToDecodedCallback)
         self.deleteDecodedPacketLinePushButton.clicked.connect(self.deleteDecodedLineCallback)
+        self.deleteLabelLinePushButton.clicked.connect(self.deleteLabelLineCallback)
         self.decodedMessagesTableWidget.itemChanged.connect(self.decodedTableItemChangedCallback)
         self.clearTableButton.clicked.connect(self.clearTableCallback)
         self.sendSelectedDecodedPacketButton.clicked.connect(self.sendDecodedPacketCallback)
@@ -90,13 +91,18 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         if not os.path.exists("save"):
             os.makedirs("save")
 
-        for i in range(5, self.mainMessageTableWidget.columnCount()):
+        for i in range(6, self.mainMessageTableWidget.columnCount()):
             self.mainMessageTableWidget.setColumnWidth(i, 32)
-        for i in range(5, self.mainMessageTableWidget.columnCount()):
+        for i in range(6, self.mainMessageTableWidget.columnCount()):
             self.decodedMessagesTableWidget.setColumnWidth(i, 32)
-        self.decodedMessagesTableWidget.setColumnWidth(1, 150)
+        self.mainMessageTableWidget.setColumnWidth(2, 600)
+        self.idLabelDictTable.setColumnWidth(1, 600)
+        self.decodedMessagesTableWidget.setColumnWidth(1, 100)
         self.decodedMessagesTableWidget.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.txTable.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
+        self.txTable.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.txTable.setColumnWidth(1, 600)  # Kolonne 1 = ID Label i txTable
+        self.txTable.setColumnWidth(3, 88)  # Kolonne 3 = Ext.ID i txTable
+        #self.txTable.setColumnWidth(4, 600)  # Kolonne 4 = Data i txTable
         self.showFullScreen()
 
     def stopPlayBackCallback(self):
@@ -167,16 +173,38 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.newTxTableRowCallback()
         newRow = 0
         decodedCurrentRow = self.decodedMessagesTableWidget.currentRow()
-        newId = str(self.decodedMessagesTableWidget.item(decodedCurrentRow, 1).text()).split(" ")
-        newItem = QTableWidgetItem(newId[0])
-        self.txTable.setItem(newRow, 0, QTableWidgetItem(newItem))
-        for i in range(1, 3):
-            self.txTable.setItem(newRow, i, QTableWidgetItem(self.decodedMessagesTableWidget.item(decodedCurrentRow, i+1)))
+
+        # ID fra kol 1 → TX kol 0
+        newId = str(self.decodedMessagesTableWidget.item(decodedCurrentRow, 1).text()).split(" ")[0]
+        self.txTable.setItem(newRow, 0, QTableWidgetItem(newId))
+
+        # Label fra kol 2 → TX kol 1
+        label = self.decodedMessagesTableWidget.item(decodedCurrentRow, 2)
+        self.txTable.setItem(newRow, 1, QTableWidgetItem(label.text() if label else ""))
+
+        # RTR fra kol 3 → TX kol 2
+        rtr_item = self.decodedMessagesTableWidget.item(decodedCurrentRow, 3)
+        self.txTable.setItem(newRow, 2, QTableWidgetItem(rtr_item.text() if rtr_item else ""))
+
+        # IDE fra kol 4 → TX kol 3
+        ide_item = self.decodedMessagesTableWidget.item(decodedCurrentRow, 4)
+        self.txTable.setItem(newRow, 3, QTableWidgetItem(ide_item.text() if ide_item else ""))
+
+        # DLC fra kol 5
+        dlc_text = self.decodedMessagesTableWidget.item(decodedCurrentRow, 5).text()
+        dlc = int(dlc_text, 16) if 'x' in dlc_text.lower() or len(dlc_text) > 2 else int(dlc_text)
+
+        # D0–D7 fra kol 6+
         newData = ""
-        for i in range(int(self.decodedMessagesTableWidget.item(decodedCurrentRow, 4).text())):
-            newData += str(self.decodedMessagesTableWidget.item(decodedCurrentRow, 5 + i).text())
-        self.txTable.setItem(newRow, 3, QTableWidgetItem(newData))
+        for i in range(dlc):
+            cell = self.decodedMessagesTableWidget.item(decodedCurrentRow, 6 + i)
+            if cell:
+                newData += cell.text()
+        # Data → TX kol 4
+        self.txTable.setItem(newRow, 4, QTableWidgetItem(newData))
+
         self.txTable.selectRow(newRow)
+
         if self.sendTxTableButton.isEnabled():
             self.sendTxTableCallback()
 
@@ -186,6 +214,9 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
     def deleteDecodedLineCallback(self):
         self.decodedMessagesTableWidget.removeRow(self.decodedMessagesTableWidget.currentRow())
+
+    def deleteLabelLineCallback(self):
+        self.idLabelDictTable.removeRow(self.idLabelDictTable.currentRow())
 
     def addToDecodedCallback(self):
         newRow = self.decodedMessagesTableWidget.rowCount()
@@ -298,7 +329,6 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
                     writer.writerow(rowData)
 
     def mainTablePopulatorCallback(self, rowData):
-
         if self.showOnlyIdsCheckBox.isChecked():
             if str(rowData[1]) not in self.showOnlyIdsSet:
                 return
@@ -307,63 +337,74 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
                 return
 
         newId = str(rowData[1])
+        row = 0
 
-        row = 0  # self.mainMessageTableWidget.rowCount()
         if self.groupModeCheckBox.isChecked():
-            if newId in self.idDict.keys():
+            if newId in self.idDict:
                 row = self.idDict[newId]
             else:
                 row = self.mainMessageTableWidget.rowCount()
                 self.mainMessageTableWidget.insertRow(row)
         else:
+            row = self.mainMessageTableWidget.rowCount()
             self.mainMessageTableWidget.insertRow(row)
 
         if self.mainMessageTableWidget.isRowHidden(row):
             self.mainMessageTableWidget.setRowHidden(row, False)
 
-        for i in range(self.mainMessageTableWidget.columnCount()):
-            if i < len(rowData):
-                data = str(rowData[i])
-                item = self.mainMessageTableWidget.item(row, i)
-                newItem = QTableWidgetItem(data)
-                if item:
-                    if item.text() != data:
-                        if self.highlightNewDataCheckBox.isChecked() and \
-                                self.groupModeCheckBox.isChecked() and \
-                                i > 4:
-                            newItem.setBackground(QColor(104, 37, 98))
-                else:
-                    if self.highlightNewDataCheckBox.isChecked() and \
-                            self.groupModeCheckBox.isChecked() and \
-                            i > 4:
-                        newItem.setBackground(QColor(104, 37, 98))
+        # Sett ID (kol 1) og Label (kol 2)
+        self.mainMessageTableWidget.setItem(row, 1, QTableWidgetItem(newId))
+        label = self.idLabelDict.get(newId, "")
+        labelItem = QTableWidgetItem(label)
+        labelItem.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.mainMessageTableWidget.setItem(row, 2, labelItem)
+
+        # Sett resten av data, forskjøvet én kolonne pga. Label
+        for i in range(len(rowData)):
+            table_col = i if i < 2 else i + 1  # hopp over kol 2
+            text = str(rowData[i])
+
+            item = self.mainMessageTableWidget.item(row, table_col)
+            if item is None:
+                item = QTableWidgetItem()
+                self.mainMessageTableWidget.setItem(row, table_col, item)
+
+            #item.setText(text)
+
+            # Highlight ny data
+            # Bare oppdater hvis teksten faktisk er endret
+            existing_text = item.text()
+            if existing_text != text:
+                item.setText(text)
+                if self.highlightNewDataCheckBox.isChecked() and self.groupModeCheckBox.isChecked() and table_col > 4:
+                    item.setBackground(QColor(104, 37, 98))
             else:
-                newItem = QTableWidgetItem()
-            self.mainMessageTableWidget.setItem(row, i, newItem)
+                # Hvis ikke data har endret seg, fjern eventuell gammel highlight
+                item.setBackground(QColor())  # resetter til standard
 
-        isFamiliar = False
-
-        if self.highlightNewIdCheckBox.isChecked():
-            if newId not in self.idDict.keys():
-                for j in range(3):
-                    self.mainMessageTableWidget.item(row, j).setBackground(QColor(52, 44, 124))
+        # Highlight ny ID
+        if self.highlightNewIdCheckBox.isChecked() and newId not in self.idDict:
+            for j in range(3):
+                self.mainMessageTableWidget.item(row, j).setBackground(QColor(52, 44, 124))
 
         self.idDict[newId] = row
 
-        if newId in self.idLabelDict.keys():
-            value = newId + " (" + self.idLabelDict[newId] + ")"
-            self.mainMessageTableWidget.setItem(row, 1, QTableWidgetItem(value))
-            isFamiliar = True
+        # Farge hele raden grønnaktig hvis kjent ID
+        if label:
+            for i in range(self.mainMessageTableWidget.columnCount()):
+                if i < 3:
+                    self.mainMessageTableWidget.item(row, i).setBackground(QColor(53, 81, 52))
 
+        # Juster all tekst
         for i in range(self.mainMessageTableWidget.columnCount()):
-            if (isFamiliar or (newId.find("(") >= 0)) and i < 3:
-                self.mainMessageTableWidget.item(row, i).setBackground(QColor(53, 81, 52))
+            item = self.mainMessageTableWidget.item(row, i)
+            if item:
+                align = Qt.AlignVCenter | (Qt.AlignLeft if i == 2 else Qt.AlignHCenter)
+                item.setTextAlignment(align)
 
-            self.mainMessageTableWidget.item(row, i).setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-
-        self.receivedPackets = self.receivedPackets + 1
+        # Oppdater teller
+        self.receivedPackets += 1
         self.packageCounterLabel.setText(str(self.receivedPackets))
-
 
     def loadTableFromFile(self, table, path):
         if path is None:
@@ -379,12 +420,43 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
                     for rowData in csv.reader(stream):
                         row = table.rowCount()
                         table.insertRow(row)
-                        for i in range(len(rowData)):
-                            if len(rowData[i]):
-                                item = QTableWidgetItem(str(rowData[i]))
-                                if not (table == self.decodedMessagesTableWidget and i == 0):
+
+                        if table == self.mainMessageTableWidget:
+                            expected_columns = table.columnCount()
+
+                            # Hvis raden i fila mangler label-kolonne (dvs. har én kolonne for lite)
+                            if len(rowData) == expected_columns - 1:
+                                # Sett Time og ID
+                                for i in range(2):
+                                    item = QTableWidgetItem(str(rowData[i]))
                                     item.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-                                table.setItem(row, i, item)
+                                    table.setItem(row, i, item)
+
+                                # Sett tom label i kol 2
+                                labelItem = QTableWidgetItem("")
+                                labelItem.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+                                table.setItem(row, 2, labelItem)
+
+                                # Resten av kolonnene
+                                for i in range(2, len(rowData)):
+                                    item = QTableWidgetItem(str(rowData[i]))
+                                    item.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
+                                    table.setItem(row, i + 1, item)
+                            else:
+                                # CSV har riktig antall kolonner, sett direkte
+                                for i in range(len(rowData)):
+                                    item = QTableWidgetItem(str(rowData[i]))
+                                    align = Qt.AlignVCenter | (Qt.AlignLeft if i == 2 else Qt.AlignHCenter)
+                                    item.setTextAlignment(align)
+                                    table.setItem(row, i, item)
+                        else:
+                            # For alle andre tabeller
+                            for i in range(len(rowData)):
+                                if len(rowData[i]):
+                                    item = QTableWidgetItem(str(rowData[i]))
+                                    if not (table == self.decodedMessagesTableWidget and i == 0):
+                                        item.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
+                                    table.setItem(row, i, item)
             except OSError:
                 print("file not found: " + path)
 
@@ -403,14 +475,21 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
     def saveIdLabelToDictCallback(self):
         if (not self.saveIdToDictLineEdit.text()) or (not self.saveLabelToDictLineEdit.text()):
             return
+
         newRow = self.idLabelDictTable.rowCount()
         self.idLabelDictTable.insertRow(newRow)
-        widgetItem = QTableWidgetItem()
-        widgetItem.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-        widgetItem.setText(self.saveIdToDictLineEdit.text())
-        self.idLabelDictTable.setItem(newRow, 0, QTableWidgetItem(widgetItem))
-        widgetItem.setText(self.saveLabelToDictLineEdit.text())
-        self.idLabelDictTable.setItem(newRow, 1, QTableWidgetItem(widgetItem))
+
+        # ID (kolonne 0)
+        idItem = QTableWidgetItem(self.saveIdToDictLineEdit.text())
+        idItem.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
+        self.idLabelDictTable.setItem(newRow, 0, idItem)
+
+        # Label (kolonne 1)
+        labelItem = QTableWidgetItem(self.saveLabelToDictLineEdit.text())
+        labelItem.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.idLabelDictTable.setItem(newRow, 1, labelItem)
+
+        # Oppdater interne dict og lagre
         self.idLabelDict[str(self.saveIdToDictLineEdit.text())] = str(self.saveLabelToDictLineEdit.text())
         self.saveIdToDictLineEdit.setText('')
         self.saveLabelToDictLineEdit.setText('')
