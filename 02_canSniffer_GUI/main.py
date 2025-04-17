@@ -410,55 +410,33 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         if path is None:
             path, _ = QFileDialog.getOpenFileName(self, 'Open File', './save', 'CSV(*.csv)')
         if path != '':
-            if table == self.mainMessageTableWidget:
-                self.fileLoaderThread.start()
-                self.fileLoaderThread.enable(path, self.playbackDelaySpinBox.value())
-                self.abortSessionLoadingButton.setEnabled(True)
-                return True
             try:
-                with open(str(path), 'r') as stream:
-                    for rowData in csv.reader(stream):
+                with open(str(path), 'r', newline='') as stream:
+                    reader = csv.reader(stream)
+                    for rowData in reader:
+                        # Hopp over tomme linjer og valgfri header
+                        if not rowData or all(cell.strip() == "" for cell in rowData):
+                            continue
+                        if rowData[0].strip().lower() in ["timestamp", "time"]:
+                            continue
+
+                        # Sørg for at vi har nok kolonner (f.eks. 14 for mainMessageTableWidget)
+                        while len(rowData) < table.columnCount():
+                            rowData.append("")
+
+                        # Ikke bruk flere kolonner enn tabellen har
+                        rowData = rowData[:table.columnCount()]
+
                         row = table.rowCount()
                         table.insertRow(row)
 
-                        if table == self.mainMessageTableWidget:
-                            expected_columns = table.columnCount()
-
-                            # Hvis raden i fila mangler label-kolonne (dvs. har én kolonne for lite)
-                            if len(rowData) == expected_columns - 1:
-                                # Sett Time og ID
-                                for i in range(2):
-                                    item = QTableWidgetItem(str(rowData[i]))
-                                    item.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-                                    table.setItem(row, i, item)
-
-                                # Sett tom label i kol 2
-                                labelItem = QTableWidgetItem("")
-                                labelItem.setTextAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-                                table.setItem(row, 2, labelItem)
-
-                                # Resten av kolonnene
-                                for i in range(2, len(rowData)):
-                                    item = QTableWidgetItem(str(rowData[i]))
-                                    item.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-                                    table.setItem(row, i + 1, item)
-                            else:
-                                # CSV har riktig antall kolonner, sett direkte
-                                for i in range(len(rowData)):
-                                    item = QTableWidgetItem(str(rowData[i]))
-                                    align = Qt.AlignVCenter | (Qt.AlignLeft if i == 2 else Qt.AlignHCenter)
-                                    item.setTextAlignment(align)
-                                    table.setItem(row, i, item)
-                        else:
-                            # For alle andre tabeller
-                            for i in range(len(rowData)):
-                                if len(rowData[i]):
-                                    item = QTableWidgetItem(str(rowData[i]))
-                                    if not (table == self.decodedMessagesTableWidget and i == 0):
-                                        item.setTextAlignment(Qt.AlignVCenter | Qt.AlignHCenter)
-                                    table.setItem(row, i, item)
+                        for i in range(len(rowData)):
+                            item = QTableWidgetItem(str(rowData[i]))
+                            align = Qt.AlignVCenter | (Qt.AlignLeft if i == 2 else Qt.AlignHCenter)
+                            item.setTextAlignment(align)
+                            table.setItem(row, i, item)
             except OSError:
-                print("file not found: " + path)
+                print("File not found:", path)
 
     def loadSessionFromFile(self):
         if self.autoclearCheckBox.isChecked():
