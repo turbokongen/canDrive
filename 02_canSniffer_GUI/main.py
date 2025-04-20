@@ -4,7 +4,7 @@
 import serial
 import canSniffer_ui
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidgetItem, QHeaderView, QFileDialog, QRadioButton
-from PyQt5.QtWidgets import QVBoxLayout, QSizeGrip
+from PyQt5.QtWidgets import QVBoxLayout, QSizeGrip, QMessageBox, QTextEdit, QGroupBox
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
 import serial.tools.list_ports
@@ -12,6 +12,7 @@ import serial.tools.list_ports
 import sys
 import os
 import time
+from datetime import datetime
 import qtmodern
 from qtmodern import styles
 from qtmodern import windows
@@ -29,6 +30,20 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
     def __init__(self):
         super(canSnifferGUI, self).__init__()
         self.setupUi(self)
+
+        self.espStatusLogBox = QTextEdit(self.centralwidget)
+        self.espStatusLogBox.setReadOnly(True)
+        self.espStatusLogBox.setStyleSheet("color: orange; background-color: #1e1e1e; font-family: Consolas;")
+        self.espStatusLogBox.setLineWrapMode(QTextEdit.NoWrap)
+
+        # Sett inn en gruppering med tittel, som ligner de andre panelene
+        self.espGroupBox = QGroupBox("ESP32 status log", self.centralwidget)
+        self.espGroupBoxLayout = QVBoxLayout(self.espGroupBox)
+        self.espGroupBoxLayout.addWidget(self.espStatusLogBox)
+
+        # Legg denne til der du før brukte self.verticalLayout_10
+        self.verticalLayout_10.addWidget(self.espGroupBox)
+
         self.mainMessageTableWidget.setMouseTracking(True)
         self.decodedMessagesTableWidget.setMouseTracking(True)
         self.txTable.setMouseTracking(True)
@@ -66,7 +81,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
         self.serialWriterThread = SerialWriter.SerialWriterThread(self.serialController)
         self.serialReaderThread = SerialReader.SerialReaderThread(self.serialController)
-        self.serialReaderThread.receivedPacketSignal.connect(self.serialPacketReceiverCallback)
+        self.serialReaderThread.receivedPacketSignal.connect(self.handleSerialLine)
         self.fileLoaderThread = FileLoader.FileLoaderThread()
         self.fileLoaderThread.newRowSignal.connect(self.mainTablePopulatorCallback)
         self.fileLoaderThread.loadingFinishedSignal.connect(self.fileLoadingFinishedCallback)
@@ -110,6 +125,26 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.txTable.setColumnWidth(3, 88)  # Kolonne 3 = Ext.ID i txTable
         #self.txTable.setColumnWidth(4, 600)  # Kolonne 4 = Data i txTable
         self.showFullScreen()
+
+    def handleSerialLine(self, line):
+        line = line.strip()
+        if not line:
+            return
+        print("RECEIVED LINE:", line)
+
+        if line.startswith("!"):
+            # Status fra ESP32 (f.eks. !SEND OK)
+            msg = line[1:].strip()
+            print(f"ESP32 STATUS: {msg}")
+            if hasattr(self, 'espStatusLogBox'):
+                current_text = self.espStatusLogBox.toPlainText()
+                self.espStatusLogBox.setPlainText(current_text + msg + "\n")
+                self.espStatusLogBox.verticalScrollBar().setValue(self.espStatusLogBox.verticalScrollBar().maximum())
+            return
+
+        # Vanlig CAN-pakke
+        timestamp = datetime.now().timestamp()
+        self.serialPacketReceiverCallback(line, timestamp)
 
     def showBitTooltip(self, item):
         column = item.column()
@@ -173,8 +208,12 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.playBackProgressBar.setValue(int((maxRows - row) / maxRows * 100))
         self.playbackMainTableIndex -= 1
 
-        self.sendPacketToESP32(row)
+        id_item = self.txTable.item(row, 0)
+        rtr_item = self.txTable.item(row, 1)
+        ide_item = self.txTable.item(row, 2)
+        data_item = self.txTable.item(row, 4)
 
+        self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
 
     def playbackMainTableCallback(self):
         self.playbackMainTableButton.setVisible(False)
@@ -190,50 +229,40 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.idDict.clear()
         self.mainMessageTableWidget.setRowCount(0)
 
-    def sendPacketToESP32(self, row):
+    def sendPacketToESP32(self, id_item, rtr_item, ide_item, data_item):
+        if self.serialWriterThread.serial is None:
+            QMessageBox.warning(self, "Serial Error", "Serial port not open.")
+            return
+
         try:
-            if not self.serialController or not self.serialController.is_open:
-                QMessageBox.warning(self, "Serial", "Seriell port er ikke åpen.")
-                return
-
-            id_item = self.txTable.item(row, 0)
-            rtr_item = self.txTable.item(row, 2)
-            ide_item = self.txTable.item(row, 3)
-            data_item = self.txTable.item(row, 4)
-
-            if not id_item or not data_item:
-                QMessageBox.warning(self, "Datafeil", "Mangler ID eller Data.")
-                return
-
-            can_id = id_item.text().strip().upper()
-            rtr = rtr_item.text().strip().zfill(2).upper() if rtr_item else "00"
-            ide = ide_item.text().strip().zfill(2).upper() if ide_item else "00"
+            id_text = id_item.text().strip().lstrip("0x").upper()
+            rtr = rtr_item.text().strip()
+            ide = ide_item.text().strip()
             data_str = data_item.text().strip().replace(" ", "").upper()
 
-            # 🔍 Valider RTR og IDE
-            if rtr not in ["00", "01"]:
-                QMessageBox.warning(self, "Invalid RTR", f"Invalid RTR-value: {rtr}\nUse 00 or 01.")
-                return
-            if ide not in ["00", "01"]:
-                QMessageBox.warning(self, "Invalid IDE", f"Invalid IDE-value: {ide}\nUse 00 or 01.")
-                return
+            # ✅ Pad ID hvis nødvendig
+            if len(id_text) % 2 != 0:
+                id_text = "0" + id_text
 
-            # Fyll opp til 8 byte
-            if len(data_str) < 16:
-                data_str += "00" * ((16 - len(data_str)) // 2)
+            can_id = int(id_text, 16)
 
-            message = f"{can_id},{rtr},{ide},{data_str}\n"
-            self.serialController.write(message.encode("ascii"))
+            # 🚀 Bygg meldingen
+            message = f"{can_id:X},{rtr},{ide},{data_str}\n"
+            print("SENDER:", message)
 
-            print(f"Sendt til ESP32:\n{message.strip()}")
+            self.serialWriterThread.serial.write(message.encode("ascii"))
 
         except Exception as e:
-            QMessageBox.critical(self, "Serial-feil", f"Feil ved sending:\n{e}")
+            print(f"Feil ved sending: {e}")
+            QMessageBox.warning(self, "Send Error", str(e))
 
     def sendDecodedPacketCallback(self):
         self.newTxTableRowCallback()
         newRow = 0
         decodedCurrentRow = self.decodedMessagesTableWidget.currentRow()
+        if decodedCurrentRow < 0:
+            QMessageBox.warning(self, "No package selected", "You need to select a package to send.")
+            return
 
         # ID fra kol 1 → TX kol 0
         newId = str(self.decodedMessagesTableWidget.item(decodedCurrentRow, 1).text()).split(" ")[0]
@@ -319,8 +348,12 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             QMessageBox.warning(self, "No rows selected", "Select a row from table before sending.")
             return
 
-        self.sendPacketToESP32(row)
+        id_item = self.txTable.item(row, 0)
+        rtr_item = self.txTable.item(row, 2)
+        ide_item = self.txTable.item(row,3)
+        data_item = self.txTable.item(row, 4)
 
+        self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
 
     def fileLoadingFinishedCallback(self):
         self.abortSessionLoadingButton.setEnabled(False)
@@ -415,7 +448,14 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         # Sett resten av data, forskjøvet én kolonne pga. Label
         for i in range(len(rowData)):
             table_col = i if i < 2 else i + 1  # hopp over kol 2
-            text = str(rowData[i])
+            if i >= 5:  # kolonner etter DLC → D0–D7
+                try:
+                    byte = int(rowData[i], 16)
+                    text = f"{byte:02X}"
+                except ValueError:
+                    text = rowData[i]
+            else:
+                text = str(rowData[i])
 
             item = self.mainMessageTableWidget.item(row, table_col)
             if item is None:
@@ -537,11 +577,20 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
         if self.activeChannelComboBox.isEnabled():
             txBuf = [0x42, self.activeChannelComboBox.currentIndex()]   # TX FORWARDER
-            self.sendPacketToESP32(row)
+            id_item = self.txTable.item(row, 0)
+            rtr_item = self.txTable.item(row, 1)
+            ide_item = self.txTable.item(row, 2)
+            data_item = self.txTable.item(row, 4)
+
+            self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
 
             txBuf = [0x41, 1 << self.activeChannelComboBox.currentIndex()]  # RX FORWARDER
-            self.sendPacketToESP32(row)
+            id_item = self.txTable.item(row, 0)
+            rtr_item = self.txTable.item(row, 1)
+            ide_item = self.txTable.item(row, 2)
+            data_item = self.txTable.item(row, 4)
 
+            self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
 
         self.startTime = time.time()
 
@@ -555,7 +604,10 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
     def serialPacketReceiverCallback(self, packet, time):
         if self.startSniffingButton.isEnabled():
             return
-        packetSplit = packet[:-1].split(',')
+
+        packet = packet.strip()
+        print("RECEIVED LINE:", packet)
+        packetSplit = packet.split(',')
 
         if len(packetSplit) != 4:
             print("wrong packet!" + packet)
@@ -563,11 +615,18 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             return
 
         rowData = [str(time - self.startTime)[:7]]  # timestamp
-        rowData += packetSplit[0:3]  # IDE, RTR, EXT
-        DLC = len(packetSplit[3]) // 2
-        rowData.append(str("{:02X}".format(DLC)))  # DLC
+        rowData += packetSplit[0:3]  # ID, RTR, IDE
+
+        datafield = packetSplit[3].strip()
+        # 🔧 Fikser byte-padding
+        if len(datafield) % 2 != 0:
+            datafield = "0" + datafield
+
+        DLC = len(datafield) // 2
+        rowData.append(f"{DLC:02X}")
+
         if DLC > 0:
-            rowData += [packetSplit[3][i:i + 2] for i in range(0, len(packetSplit[3]), 2)]  # data
+            rowData += [datafield[i:i + 2].upper() for i in range(0, len(datafield), 2)]
 
         self.mainTablePopulatorCallback(rowData)
 
@@ -576,6 +635,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             self.serialController.port = self.portSelectorComboBox.currentText()
             self.serialController.baudrate = 250000
             self.serialController.open()
+            self.espStatusLogBox.clear() # Clear ESP32 Log when doing new connection
             self.serialReaderThread.start()
             self.serialWriterThread.start()
             self.serialConnectedCheckBox.setChecked(True)
