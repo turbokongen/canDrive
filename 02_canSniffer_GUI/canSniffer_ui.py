@@ -631,7 +631,7 @@ class Ui_MainWindow(object):
         self.line_2.setObjectName("line_2")
         self.verticalLayout_4.addWidget(self.line_2)
         self.playbackMainTableButton = QtWidgets.QPushButton(self.groupBox_7)
-        self.playbackMainTableButton.setEnabled(True)
+        self.playbackMainTableButton.setEnabled(False)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)

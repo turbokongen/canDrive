@@ -1,8 +1,11 @@
-SID Info SET button,290,SID,00,00,08,80,00,00,40,00,40,00,00
-SID button Volume up,290,SID,00,00,08,80,00,40,00,40,00,00,00
-SID diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,65,02,40,00,00
-Tech2 Bus check diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,28,02,40,00,00
-DAH diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,18,02,40,00,00
-SPA Diagnostic session request,220,Diagnostic session,00,00,08,3F,81,00,66,02,40,00,00
-SID Ding Dong,430,SID Sound,00,00,08,80,40,00,00,00,00,00,00
+Diagnostic Data ACK,266,,00,00,08,40,93,3F,80,00,00,00,00
+Diagnostic data request,240,Data request,00,00,08,40,93,01,3E,00,00,00,00
+EDC16 Diagnostic session request,220,Diagnostic Request,00,00,08,3F,81,00,58,02,40,00,00
 Testing,666,Test,0,0,08,11,22,33,44,55,66,77,88
+SID Ding Dong,430,SID Sound,00,00,08,80,40,00,00,00,00,00,00
+SPA Diagnostic session request,220,Diagnostic session,00,00,08,3F,81,00,66,02,40,00,00
+DAH diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,18,02,40,00,00
+Tech2 Bus check diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,28,02,40,00,00
+SID diagnostic request,220,Diagnostic session,00,00,08,3F,81,00,65,02,40,00,00
+SID button Volume up,290,SID,00,00,08,80,00,40,00,40,00,00,00
+SID Info SET button,290,SID,00,00,08,80,00,00,40,00,40,00,00

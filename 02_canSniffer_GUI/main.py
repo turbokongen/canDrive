@@ -697,6 +697,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             self.portConnectButton.setEnabled(False)
             self.startSniffingButton.setEnabled(True)
             self.stopSniffingButton.setEnabled(False)
+            self.playbackMainTableButton.setEnabled(True)  # Aktiver playback-knapp ved oppstart
         except serial.SerialException as e:
             print('Error opening port: ' + str(e))
 
@@ -711,6 +712,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             self.startSniffingButton.setEnabled(False)
             self.serialConnectedCheckBox.setChecked(False)
             self.serialController.close()
+            self.playbackMainTableButton.setEnabled(False)  # Deaktiver playback-knapp ved oppstart
         except serial.SerialException as e:
             print('Error closing port: ' + str(e))
 

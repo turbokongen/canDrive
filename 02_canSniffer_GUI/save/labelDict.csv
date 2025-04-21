@@ -1,47 +1,49 @@
-370,ECM
-108,RPM
-115,Pedals
-120,ESP
-155,Climate
-160,Remote
-175,WheelJoys
-201,BC_inc
-220,Diagnostic session
-230,RearLeftDoor
-235,Brightness
-23A,LightSwitch
-240,Trionic data query
-252,BCM
-253,UEC
-254,REC
-257,SDM
-260,Turninglight
-266,Trionic reply acknowledgement
-280,DICE
-290,SID
-320,DICE
-34F,TWICE to SID text
-350,FrontFogLight
-357,SPA to SID text
-360,Break
-368,SID text priority
-3B0,DICE electrical info
-3E0,TCM
-405,FrontLeftDoor
-410,SID Light and Night
-415,RightWindow
-420,FrontRightDoor
-439,SPA distance
-460,ECM
-4A0,DICE Steering wheel stalk controls and VIN
-4E8,REC
-500,WheelPos?
-506,BCM
-520,ACC
-530,ACC (Obsolete)
-590,PSM
-5C0,ECM Coolant and ambient pressure
-630,MIU Tank level
-640,MIU Mileage
-730,SID Clock and engine time off
+266,Diagnostic data Ack
+235,EDC16 Diagnostic Reply
 7A0,SID temps
+730,SID Clock and engine time off
+640,MIU Mileage
+630,MIU Tank level
+5C0,ECM Coolant and ambient pressure
+590,PSM
+530,ACC (Obsolete)
+520,ACC
+506,BCM
+500,WheelPos?
+4E8,REC
+4A0,DICE Steering wheel stalk controls and VIN
+460,ECM
+439,SPA distance
+420,FrontRightDoor
+415,RightWindow
+410,SID Light and Night
+405,FrontLeftDoor
+3E0,TCM
+3B0,DICE electrical info
+368,SID text priority
+360,Break
+357,SPA to SID text
+350,FrontFogLight
+34F,TWICE to SID text
+320,DICE
+290,SID
+280,DICE
+266,Trionic reply acknowledgement
+260,Turninglight
+257,SDM
+254,REC
+253,UEC
+252,BCM
+240,Trionic data query
+23A,LightSwitch
+235,Brightness
+230,RearLeftDoor
+220,Diagnostic session
+201,BC_inc
+175,WheelJoys
+160,Remote
+155,Climate
+120,ESP
+115,Pedals
+108,RPM
+370,ECM
