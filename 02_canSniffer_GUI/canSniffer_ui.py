@@ -1204,7 +1204,7 @@ class Ui_MainWindow(object):
         item.setText(_translate("MainWindow", "D7"))
         self.groupBox_2.setTitle(_translate("MainWindow", "Operations"))
         self.deleteDecodedPacketLinePushButton.setText(_translate("MainWindow", "Delete selected line"))
-        self.sendSelectedDecodedPacketButton.setText(_translate("MainWindow", "Send selected packet"))
+        self.sendSelectedDecodedPacketButton.setText(_translate("MainWindow", "Send packet to TX table"))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_3), _translate("MainWindow", "Decoded messages"))
         self.idLabelDictTable.setSortingEnabled(True)
         item = self.idLabelDictTable.horizontalHeaderItem(0)

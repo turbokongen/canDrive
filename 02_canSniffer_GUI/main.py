@@ -4,9 +4,9 @@
 import serial
 import canSniffer_ui
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidgetItem, QHeaderView, QFileDialog, QRadioButton
-from PyQt5.QtWidgets import QVBoxLayout, QSizeGrip, QMessageBox, QTextEdit, QGroupBox
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QVBoxLayout, QSizeGrip, QMessageBox, QTextEdit, QGroupBox, QPushButton, QToolTip
+from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtGui import QColor, QCursor
 import serial.tools.list_ports
 
 import sys
@@ -31,15 +31,23 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         super(canSnifferGUI, self).__init__()
         self.setupUi(self)
 
+        self.tooltipUpdateTimer = QTimer()
+        self.tooltipUpdateTimer.timeout.connect(self.updateHoveredTooltip)
+        self.tooltipUpdateTimer.start(150)  # Oppdater hvert 150 ms
+
         self.espStatusLogBox = QTextEdit(self.centralwidget)
         self.espStatusLogBox.setReadOnly(True)
         self.espStatusLogBox.setStyleSheet("color: orange; background-color: #1e1e1e; font-family: Consolas;")
         self.espStatusLogBox.setLineWrapMode(QTextEdit.NoWrap)
+        self.clearEspLogButton = QPushButton("Clear ESP Log")
+        self.clearEspLogButton.clicked.connect(lambda: self.espStatusLogBox.clear())
+
 
         # Sett inn en gruppering med tittel, som ligner de andre panelene
         self.espGroupBox = QGroupBox("ESP32 status log", self.centralwidget)
         self.espGroupBoxLayout = QVBoxLayout(self.espGroupBox)
         self.espGroupBoxLayout.addWidget(self.espStatusLogBox)
+        self.espGroupBoxLayout.addWidget(self.clearEspLogButton)
 
         # Legg denne til der du før brukte self.verticalLayout_10
         self.verticalLayout_10.addWidget(self.espGroupBox)
@@ -145,6 +153,26 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         # Vanlig CAN-pakke
         timestamp = datetime.now().timestamp()
         self.serialPacketReceiverCallback(line, timestamp)
+
+    def updateHoveredTooltip(self):
+        widget = QApplication.widgetAt(QCursor.pos())
+        if not isinstance(widget, QTableWidgetItem):
+            # Vi må finne ut hvilket TableWidget og hvilken celle som er under musen
+            for table in [self.mainMessageTableWidget, self.decodedMessagesTableWidget, self.txTable]:
+                pos = table.viewport().mapFromGlobal(QCursor.pos())
+                row = table.rowAt(pos.y())
+                col = table.columnAt(pos.x())
+                if row >= 0 and col >= 6 and col <= 13:  # D0–D7
+                    item = table.item(row, col)
+                    if item:
+                        try:
+                            byte = int(item.text(), 16)
+                            tooltip = f"Byte: {item.text().strip().upper()}\nBits: {byte:08b}"
+                        except:
+                            tooltip = "Ugyldig hex-verdi"
+                        item.setToolTip(tooltip)
+                        QToolTip.showText(QCursor.pos(), tooltip)
+                    return
 
     def showBitTooltip(self, item):
         column = item.column()
@@ -295,8 +323,8 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
         self.txTable.selectRow(newRow)
 
-        if self.sendTxTableButton.isEnabled():
-            self.sendTxTableCallback()
+        #if self.sendTxTableButton.isEnabled():
+        #    self.sendTxTableCallback()
 
     def decodedTableItemChangedCallback(self):
         if self.isInited:
@@ -385,7 +413,13 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.loadTableFromFile(self.idLabelDictTable, "save/labelDict.csv")
         for row in range(self.idLabelDictTable.rowCount()):
             self.idLabelDict[str(self.idLabelDictTable.item(row, 0).text())] = \
-                str(self.idLabelDictTable.item(row, 1).text())
+                item_key = self.idLabelDictTable.item(row, 0)
+            item_val = self.idLabelDictTable.item(row, 1)
+
+            if item_key is not None and item_val is not None:
+                key = str(item_key.text()).strip()
+                val = str(item_val.text()).strip()
+                self.idLabelDict[key] = val
         self.isInited = True
 
     def clearLabelDict(self):
@@ -500,36 +534,35 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.packageCounterLabel.setText(str(self.receivedPackets))
 
     def loadTableFromFile(self, table, path):
-        if path is None:
-            path, _ = QFileDialog.getOpenFileName(self, 'Open File', './save', 'CSV(*.csv)')
-        if path != '':
-            try:
-                with open(str(path), 'r', newline='') as stream:
-                    reader = csv.reader(stream)
-                    for rowData in reader:
-                        # Hopp over tomme linjer og valgfri header
-                        if not rowData or all(cell.strip() == "" for cell in rowData):
-                            continue
-                        if rowData[0].strip().lower() in ["timestamp", "time"]:
-                            continue
-
-                        # Sørg for at vi har nok kolonner (f.eks. 14 for mainMessageTableWidget)
-                        while len(rowData) < table.columnCount():
-                            rowData.append("")
-
-                        # Ikke bruk flere kolonner enn tabellen har
-                        rowData = rowData[:table.columnCount()]
-
-                        row = table.rowCount()
-                        table.insertRow(row)
-
-                        for i in range(len(rowData)):
-                            item = QTableWidgetItem(str(rowData[i]))
-                            align = Qt.AlignVCenter | (Qt.AlignLeft if i == 2 else Qt.AlignHCenter)
-                            item.setTextAlignment(align)
-                            table.setItem(row, i, item)
-            except OSError:
-                print("File not found:", path)
+        if table == self.mainMessageTableWidget:
+            if path is None:
+                path, _ = QFileDialog.getOpenFileName(self, 'Open File', './save', 'CSV(*.csv)')
+            if path:
+                self.fileLoaderThread.enable(path, self.playbackDelaySpinBox.value())
+                self.fileLoaderThread.start()
+                self.abortSessionLoadingButton.setEnabled(True)
+                return True
+        else:
+            if path is None:
+                path, _ = QFileDialog.getOpenFileName(self, 'Open File', './save', 'CSV(*.csv)')
+            if path:
+                try:
+                    with open(path, 'r', newline='') as stream:
+                        reader = csv.reader(stream)
+                        for rowData in reader:
+                            if not rowData or all(cell.strip() == "" for cell in rowData):
+                                continue
+                            if rowData[0].strip().lower() in ["timestamp", "time"]:
+                                continue
+                            while len(rowData) < table.columnCount():
+                                rowData.append("")
+                            row = table.rowCount()
+                            table.insertRow(row)
+                            for column in range(table.columnCount()):
+                                item = QTableWidgetItem(rowData[column])
+                                table.setItem(row, column, item)
+                except OSError:
+                    print("File not found:", path)
 
     def loadSessionFromFile(self):
         if self.autoclearCheckBox.isChecked():
