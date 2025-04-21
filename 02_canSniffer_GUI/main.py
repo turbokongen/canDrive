@@ -211,43 +211,64 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
     def playbackMainTable1Packet(self):
         row = self.playbackMainTableIndex
+        maxRows = self.mainMessageTableWidget.rowCount()
 
-        if row < 0:
+        if row >= maxRows:
             self.stopPlayBackCallback()
             return
-        maxRows = self.mainMessageTableWidget.rowCount()
+
         txBuf = ""
-        id = ((self.mainMessageTableWidget.item(row, 1).text()).split(" "))[0]
+        id_item = self.mainMessageTableWidget.item(row, 1)
+        id = id_item.text().split(" ")[0] if id_item and id_item.text() else ""
         if len(id) % 2:
             txBuf += '0'
-        txBuf += id + ',' + self.mainMessageTableWidget.item(row, 2).text() + ',' + \
-                 self.mainMessageTableWidget.item(row, 3).text() + ','
-        for i in range(5, self.mainMessageTableWidget.columnCount()):
-            txBuf += self.mainMessageTableWidget.item(row, i).text()
-        txBuf += '\n'
-        if row < maxRows - 1:
-            dt = float(self.mainMessageTableWidget.item(row, 0).text()) - float(
-                self.mainMessageTableWidget.item(row + 1, 0).text())
-            sec_to_ms = 1000
-            if '.' not in self.mainMessageTableWidget.item(row, 0).text():
-                sec_to_ms = 1       # timestamp already in ms
-            dt = abs(int(dt * sec_to_ms))
-            self.serialWriterThread.setNormalWriteDelay(dt)
-        self.playBackProgressBar.setValue(int((maxRows - row) / maxRows * 100))
-        self.playbackMainTableIndex -= 1
+        txBuf += id + ','
 
-        id_item = self.txTable.item(row, 0)
-        rtr_item = self.txTable.item(row, 1)
-        ide_item = self.txTable.item(row, 2)
-        data_item = self.txTable.item(row, 4)
+        rtr_item = self.mainMessageTableWidget.item(row, 3)
+        ide_item = self.mainMessageTableWidget.item(row, 4)
+
+        txBuf += (rtr_item.text() if rtr_item else "0") + ','
+        txBuf += (ide_item.text() if ide_item else "0") + ','
+
+        for i in range(6, self.mainMessageTableWidget.columnCount()):
+            data_item = self.mainMessageTableWidget.item(row, i)
+            txBuf += data_item.text() if data_item else ""
+
+        txBuf += '\n'
+
+        if row < maxRows - 1:
+            try:
+                t0 = float(self.mainMessageTableWidget.item(row, 0).text())
+                t1 = float(self.mainMessageTableWidget.item(row + 1, 0).text())
+                dt = abs(int((t0 - t1) * (1000 if '.' in str(t0) else 1)))
+                self.serialWriterThread.setNormalWriteDelay(dt)
+            except:
+                self.serialWriterThread.setNormalWriteDelay(10)
+
+        self.playBackProgressBar.setValue(int((row / maxRows) * 100))
+        self.playbackMainTableIndex += 1
+
+        id_item = self.mainMessageTableWidget.item(row, 1)
+        rtr_item = self.mainMessageTableWidget.item(row, 3)
+        ide_item = self.mainMessageTableWidget.item(row, 4)
+        data_field = ""
+
+        for i in range(6, self.mainMessageTableWidget.columnCount()):
+            item = self.mainMessageTableWidget.item(row, i)
+            if item and item.text().strip():
+                data_field += item.text().strip()
+
+        data_item = QTableWidgetItem(data_field)
 
         self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
+
+        QTimer.singleShot(self.serialWriterThread.normalWriteDelay, self.playbackMainTable1Packet)
 
     def playbackMainTableCallback(self):
         self.playbackMainTableButton.setVisible(False)
         self.stopPlayBackButton.setVisible(True)
         self.playBackProgressBar.setVisible(True)
-        self.playbackMainTableIndex = self.mainMessageTableWidget.rowCount() - 1
+        self.playbackMainTableIndex = 0
         self.serialWriterThread.setRepeatedWriteDelay(0)
         print('playing back...')
         self.serialWriterThread.packetSentSignal.connect(self.playbackMainTable1Packet)
