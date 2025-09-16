@@ -132,7 +132,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.txTable.setColumnWidth(1, 600)  # Kolonne 1 = ID Label i txTable
         self.txTable.setColumnWidth(3, 88)  # Kolonne 3 = Ext.ID i txTable
         #self.txTable.setColumnWidth(4, 600)  # Kolonne 4 = Data i txTable
-        self.showFullScreen()
+        self.showMaximized()
 
     def handleSerialLine(self, line):
         line = line.strip()
@@ -525,15 +525,15 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             if existing_text != text:
                 item.setText(text)
                 if self.highlightNewDataCheckBox.isChecked() and self.groupModeCheckBox.isChecked() and table_col > 4:
-                    item.setBackground(QColor(104, 37, 98))
+                    item.setBackground(QColor(245, 110, 234))
             else:
                 # Hvis ikke data har endret seg, fjern eventuell gammel highlight
-                item.setBackground(QColor())  # resetter til standard
+                item.setBackground(QColor(255, 255, 255))  # resetter til standard
 
         # Highlight ny ID
         if self.highlightNewIdCheckBox.isChecked() and newId not in self.idDict:
             for j in range(3):
-                self.mainMessageTableWidget.item(row, j).setBackground(QColor(52, 44, 124))
+                self.mainMessageTableWidget.item(row, j).setBackground(QColor(132, 119, 245))
 
         self.idDict[newId] = row
 
@@ -541,7 +541,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         if label:
             for i in range(self.mainMessageTableWidget.columnCount()):
                 if i < 3:
-                    self.mainMessageTableWidget.item(row, i).setBackground(QColor(53, 81, 52))
+                    self.mainMessageTableWidget.item(row, i).setBackground(QColor(139, 240, 136))
 
         # Juster all tekst
         for i in range(self.mainMessageTableWidget.columnCount()):
@@ -739,18 +739,18 @@ def main():
     gui = canSnifferGUI()
 
     #applying dark theme
-    qtmodern.styles.dark(app)
-    darked_gui = qtmodern.windows.ModernWindow(gui)
+    #qtmodern.styles.dark(app)
+    #darked_gui = qtmodern.windows.ModernWindow(gui)
 
     # adding a grip to the top left corner to make the frameless window resizable
-    layout = QVBoxLayout()
-    sizegrip = QSizeGrip(darked_gui)
-    sizegrip.setMaximumSize(30, 30)
-    layout.addWidget(sizegrip, 50, Qt.AlignBottom | Qt.AlignRight)
-    darked_gui.setLayout(layout)
+    #layout = QVBoxLayout()
+    #sizegrip = QSizeGrip(darked_gui)
+    #sizegrip.setMaximumSize(30, 30)
+    #layout.addWidget(sizegrip, 50, Qt.AlignBottom | Qt.AlignRight)
+    #darked_gui.setLayout(layout)
 
     #starting the app
-    darked_gui.show()
+    gui.show()
     app.exec_()
 
 
