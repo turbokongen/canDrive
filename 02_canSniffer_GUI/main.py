@@ -4,7 +4,8 @@
 import serial
 import canSniffer_ui
 from PyQt5.QtWidgets import QMainWindow, QApplication, QTableWidgetItem, QHeaderView, QFileDialog, QRadioButton
-from PyQt5.QtWidgets import QVBoxLayout, QSizeGrip, QMessageBox, QTextEdit, QGroupBox, QPushButton, QToolTip
+from PyQt5.QtWidgets import QVBoxLayout, QCheckBox, QMessageBox, QTextEdit, QGroupBox, QPushButton, QToolTip, QLabel
+from PyQt5.QtWidgets import QLineEdit, QHBoxLayout, QSizePolicy
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor, QCursor
 import serial.tools.list_ports
@@ -30,6 +31,44 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
     def __init__(self):
         super(canSnifferGUI, self).__init__()
         self.setupUi(self)
+
+        # --- KWP2000 / ISO-TP (Flow Control only) ---
+        self.kwpGroupBox = QGroupBox("KWP2000 / ISO-TP", self.centralwidget)
+        self.kwpGroupBoxLayout = QVBoxLayout(self.kwpGroupBox)
+
+        self.kwpEnableCheck = QCheckBox("Enable Flow Control (Send ACK on FF)")
+        self.kwpEnableCheck.stateChanged.connect(self.onKwpToggle)
+        self.kwpGroupBoxLayout.addWidget(self.kwpEnableCheck)
+
+        idRow = QHBoxLayout()
+        self.testerIdEdit = QLineEdit("7E0");
+        self.testerIdEdit.setMaximumWidth(80)
+        self.ecuIdEdit = QLineEdit("7E8");
+        self.ecuIdEdit.setMaximumWidth(80)
+        idRow.addWidget(QLabel("Tester ID (hex):"));
+        idRow.addWidget(self.testerIdEdit)
+        idRow.addSpacing(12)
+        idRow.addWidget(QLabel("ECU ID (hex):"));
+        idRow.addWidget(self.ecuIdEdit)
+        self.kwpGroupBoxLayout.addLayout(idRow)
+
+        self.applyIdsBtn = QPushButton("Apply IDs")
+        self.applyIdsBtn.clicked.connect(self.onApplyIds)
+        self.kwpGroupBoxLayout.addWidget(self.applyIdsBtn)
+
+        self.verticalLayout_10.addWidget(self.kwpGroupBox)
+        side_widget = self.verticalLayout_10.parentWidget()
+        side_widget.setMinimumWidth(300)
+        sp = side_widget.sizePolicy()
+        sp.setHorizontalPolicy(QSizePolicy.Preferred)
+        side_widget.setSizePolicy(sp)
+        self.loadedFileLabel = QLabel("No file loaded", self)
+        self.loadedFileLabel.setStyleSheet("color: #888;")  # diskret grå tekst
+        self.loadedFileLabel.setTextInteractionFlags(Qt.TextSelectableByMouse)  # kan kopiere tekst
+        parent_layout = self.loadSessionFromFileButton.parentWidget().layout()
+        if parent_layout is not None:
+            i = parent_layout.indexOf(self.loadSessionFromFileButton)
+            parent_layout.insertWidget(i + 1, self.loadedFileLabel)
 
         self.tooltipUpdateTimer = QTimer()
         self.tooltipUpdateTimer.timeout.connect(self.updateHoveredTooltip)
@@ -133,6 +172,34 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.txTable.setColumnWidth(3, 88)  # Kolonne 3 = Ext.ID i txTable
         #self.txTable.setColumnWidth(4, 600)  # Kolonne 4 = Data i txTable
         self.showMaximized()
+
+    def onKwpToggle(self, state):
+        """KWP/ISO-TP toggle → sender 'K1' (ON) eller 'K0' (OFF) til ESP."""
+        try:
+            ser = getattr(self.serialWriterThread, "serial", None)
+            if not ser or not ser.is_open:
+                QMessageBox.warning(self, "Serial", "Serial port not open.")
+                return
+            cmd = "K1\n" if state == Qt.Checked else "K0\n"
+            ser.write(cmd.encode("ascii"))
+        except Exception as e:
+            QMessageBox.warning(self, "Serial", f"Failed to toggle KWP: {e}")
+
+    def onApplyIds(self):
+        """Sender IDT/IDE til ESP (hex uten 0x)."""
+        try:
+            ser = getattr(self.serialWriterThread, "serial", None)
+            if not ser or not ser.is_open:
+                QMessageBox.warning(self, "Serial", "Serial port not open.")
+                return
+            tid = int(self.testerIdEdit.text().strip(), 16)
+            eid = int(self.ecuIdEdit.text().strip(), 16)
+            # én linje som ESP-parsingen din forstår (eller behold IDT/IDE om du vil)
+            ser.write(f"ID {tid:03X} {eid:03X}\n".encode("ascii"))
+        except ValueError:
+            QMessageBox.warning(self, "IDs", "Please enter valid hex IDs, e.g. 7E0 and 7E8.")
+        except Exception as e:
+            QMessageBox.warning(self, "Serial", f"Failed to apply IDs: {e}")
 
     def handleSerialLine(self, line):
         line = line.strip()
@@ -262,7 +329,14 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
         self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
 
-        QTimer.singleShot(self.serialWriterThread.normalWriteDelay, self.playbackMainTable1Packet)
+        if row < maxRows - 1:
+            try:
+                t0 = float(self.mainMessageTableWidget.item(row, 0).text())
+                t1 = float(self.mainMessageTableWidget.item(row + 1, 0).text())
+                dt = max(0, int(round((t1 - t0) * 1000)))  # ms mellom rad row og row+1
+                self.serialWriterThread.setNormalWriteDelay(dt)
+            except:
+                self.serialWriterThread.setNormalWriteDelay(10)
 
     def playbackMainTableCallback(self):
         self.playbackMainTableButton.setVisible(False)
@@ -559,10 +633,22 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             if path is None:
                 path, _ = QFileDialog.getOpenFileName(self, 'Open File', './save', 'CSV(*.csv)')
             if path:
+                # Vis valgt filnavn under knappen
+                try:
+                    fn = os.path.basename(path)
+                    self.loadedFileLabel.setText(fn)
+                    self.loadedFileLabel.setToolTip(path)  # full sti som tooltip
+                except Exception:
+                    self.loadedFileLabel.setText("No file loaded")
+
                 self.fileLoaderThread.enable(path, self.playbackDelaySpinBox.value())
                 self.fileLoaderThread.start()
                 self.abortSessionLoadingButton.setEnabled(True)
                 return True
+            else:
+                # Hvis bruker kansellerer, vis "No file loaded"
+                self.loadedFileLabel.setText("No file loaded")
+                return False
         else:
             if path is None:
                 path, _ = QFileDialog.getOpenFileName(self, 'Open File', './save', 'CSV(*.csv)')
