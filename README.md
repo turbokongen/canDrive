@@ -6,7 +6,7 @@ Adam Varga has created this google sheet, so everybody can freely add their deco
 https://docs.google.com/spreadsheets/d/1eBKiTwEE6aPnfw2EfSHItLeMz00fJq0Y0L99Ym7fKwU/edit?usp=sharing
 
 # Content
-- 01_canSniffer_Arduino: This code runs on your ESP32 sniffer device and creates an interface between the car and the GUI.
+- 01_canSniffer_Arduino: This code runs on your ESP32 (S2 mini) sniffer device and creates an interface between the car and the GUI. In my project I used 2pcs of MCP2515 modules to connect to my SAAB 9-5
 - 02_canSniffer_GUI: Powerful and easy-to-use graphical sniffer application used for reverse engineering CAN packets. Written in Python.
 - 03_canSniffer_HW: Hardware projects for the custom OBD2 module. Made in Altium Designer. **This is only kept for reference**
 - 04_canSniffer_FW: Embedded code running on the custom OBD2 module. **This is only kept for reference**
@@ -19,6 +19,7 @@ This code creates the interface between the car and the canSniffer_GUI applicati
 Required modifications: 
 Add the supplied mcp_can zip file library to the Arduino IDE when project open.
 The can speed needs to be adjusted to your required setting for your specific application.
+The ESP32 pins needs to be adjusted to your physical connections.
 ### 02_canSniffer_GUI
 I recommend to use pyCharm Community edition.
 Python 3 is required for this project, 3.8 is preferred. The GUI is based on pyQt. This project contains my decoded packets in save/decodedPackets.csv. The required python packages can be installed with:
