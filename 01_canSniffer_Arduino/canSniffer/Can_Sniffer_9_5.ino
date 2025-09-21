@@ -19,6 +19,13 @@ const int P_BUS_CS_PIN = 39;
 unsigned long previousMillis = 0;
 const long interval = 3000;
 
+// --- KWP2000 / ISO-TP (kun FC) ---
+volatile bool kwp2000Enabled = false;   // GUI-bryter: OFF = kun logging, ON = send FC ved FF
+
+// 11-bit standard-IDer (endre hvis bilen din bruker andre)
+uint32_t TESTER_TX_ID = 0x7E0;  // Tester -> ECU
+uint32_t ECU_RX_ID    = 0x7E8;  // ECU -> Tester
+
 MCP_CAN CAN(P_BUS_CS_PIN);
 
 typedef struct {
@@ -28,6 +35,27 @@ typedef struct {
   bool rtr;
   bool ide;
 } packet_t;
+
+// Send én Flow Control (CTS, BS=0, STmin=0)
+inline void sendFlowControlOnce() {
+  uint8_t fc[8] = {0x30, 0x00, 0x00, 0,0,0,0,0};
+  // MCP2515-libs (vanlig): sendMsgBuf(id, ext(0=std), len, data)
+  CAN.sendMsgBuf(TESTER_TX_ID, 0 /*std 11-bit*/, 8, fc);
+}
+
+// Kall denne på ALLE mottatte CAN-rammer (etter at du har logget dem).
+// Den gjør KUN én ting: hvis FF (0x10) fra ECU *og* bryter PÅ -> send FC.
+inline void handleIsoTp_FCOnly(uint32_t canId, uint8_t dlc, const uint8_t *d) {
+  if (!kwp2000Enabled) return;          // Av: aldri send noe
+  if (canId != ECU_RX_ID || dlc < 2) return;  // bare fra ECU, og minst 2 byte
+
+  uint8_t pciType = d[0] & 0xF0;        // ISO-TP PCI upper nibble
+  if (pciType == 0x10) {                // First Frame (FF)
+    // d[0] = 0x1L (L = high nibble av totallengde)
+    // d[1] = low byte av totallengde
+    sendFlowControlOnce();              // svar raskt (N_Bs ~75 ms typisk)
+  }
+}
 
 void printPacket(const packet_t* packet) {
   Serial.print(packet->id, HEX);
@@ -113,6 +141,32 @@ char* strToHex(char* str, byte* hexArray, byte* len) {
 }
 
 void rxParse(char* buf, int len) {
+  // --- NYTT: håndter enkle tekst-kommandoer før CAN-linje ---
+  // Stripp CR/LF og gjør en kopi i uppercase for enkel sjekk
+  while (len > 0 && (buf[len-1] == '\r' || buf[len-1] == '\n')) len--;
+  String s = String(buf).substring(0, len);
+  String up = s; up.toUpperCase(); up.trim();
+
+  if (up == "K1") { kwp2000Enabled = true;  Serial.println("!KWP FC: ON");  return; }
+  if (up == "K0") { kwp2000Enabled = false; Serial.println("!KWP FC: OFF"); return; }
+
+  if (up.startsWith("IDT ")) {  // f.eks. "IDT 7E0"
+    uint32_t v = strtoul(s.c_str() + 4, nullptr, 16);
+    TESTER_TX_ID = v; Serial.printf("!IDT=%03X\n", TESTER_TX_ID); return;
+  }
+  if (up.startsWith("IDE ")) {  // f.eks. "IDE 7E8"
+    uint32_t v = strtoul(s.c_str() + 4, nullptr, 16);
+    ECU_RX_ID = v;  Serial.printf("!IDE=%03X\n", ECU_RX_ID);     return;
+  }
+  if (up.startsWith("ID ")) {   // f.eks. "ID 7E0 7E8"
+    uint32_t t=0, e=0;
+    int n = sscanf(s.c_str()+3, "%x %x", &t, &e);
+    if (n == 2) { TESTER_TX_ID = t; ECU_RX_ID = e; Serial.printf("!IDs set: T=%03X E=%03X\n", TESTER_TX_ID, ECU_RX_ID); }
+    else        { Serial.println("!PARSE FAIL: ID"); }
+    return;
+  }
+  // --- SLUTT på nye kommandoer, CAN-parsingen under forblir som før ---
+
   packet_t rxPacket = {};
   char* ptr = buf;
   byte temp[8], tempLen;
@@ -187,16 +241,33 @@ void loop() {
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= interval) {
     previousMillis = currentMillis;
-    packet_t testPacket = {};
-    testPacket.id = 0x430;
-    testPacket.ide = 0;
-    testPacket.rtr = 0;
-    testPacket.dlc = 8;
-    byte d[] = {0x80, 0x40, 0, 0, 0, 0, 0, 0};
-    memcpy(testPacket.dataArray, d, 8);
-    printPacket(&testPacket);
-    sendPacketToCan(&testPacket);
+     // Anta definisjonen av packet_t slik:
+  // struct packet_t { uint32_t id; uint8_t ide; uint8_t rtr; uint8_t dlc; uint8_t dataArray[8]; };
+
+  packet_t p = {};
+
+  // Bruk riktige typer (uint32_t for ID, ikke long)
+  const uint32_t sampleIdList[] = {
+    0x110, 0x18DAF111, 0x23A, 0x257, 0x412F1A1, 0x601, 0x18EA0C11
+  };
+  const int idCount = sizeof(sampleIdList) / sizeof(sampleIdList[0]);
+  const int idIndex = random(idCount);
+
+  p.id  = sampleIdList[idIndex];
+  p.ide = (p.id > 0x7FF) ? 1 : 0;   // 29-bit = Extended
+  p.rtr = 0;                        // Data frame
+  p.dlc = 8;                        // Alltid 8 bytes
+
+  // Fyll nye tilfeldige bytes hver gang (ingen “hengende” tilstand)
+  for (int i = 0; i < 8; i++) {
+    p.dataArray[i] = (uint8_t)random(256);
   }
+  printPacket(&p);
+
+  // Send til CAN
+  sendPacketToCan(&p);
+}
+
 #else
   if (CAN_MSGAVAIL == CAN.checkReceive()) {
     packet_t rxPacket = {};
@@ -216,6 +287,8 @@ void loop() {
     }
 
     printPacket(&rxPacket);
+    // 2) Kun dersom KWP-bryter er PÅ: send FC når vi ser FF fra ECU
+    handleIsoTp_FCOnly((uint32_t)rxId, (uint8_t)len, buf);
   }
 #endif
 }
