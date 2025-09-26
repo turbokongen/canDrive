@@ -13,6 +13,7 @@ class SerialWriterThread(QThread):
         super(SerialWriterThread, self).__init__()
         self.serial = serial
         self.isRunning = False
+        self.lastElement = None
 
     def clearQueues(self):
         self.writerQ.queue.clear()
@@ -21,14 +22,19 @@ class SerialWriterThread(QThread):
     def stop(self):
         self.isRunning = False
         self.clearQueues()
+        self.repeatedWriteDelay = 0
 
     def write(self, packet):
         self.writerQ.put(packet)
+        if self.repeatedWriteDelay != 0:
+            self.tempQ.put(packet)
 
     def setRepeatedWriteDelay(self, delay):
         self.repeatedWriteDelay = delay
         with self.tempQ.mutex:
             self.tempQ.queue.clear()
+        if delay != 0 and self.lastElement is not None:
+            self.tempQ.put(self.lastElement)
 
     def setNormalWriteDelay(self, delay):
         self.normalWriteDelay = delay
@@ -44,8 +50,11 @@ class SerialWriterThread(QThread):
                 else:
                     num = self.serial.write(element.encode("utf-8"))
                     #print(element.encode("utf-8"))
+                # Husk sist sendte for å kunne seed’e repetisjon senere
+                self.lastElement = element
 
                 if self.normalWriteDelay != 0:
+                    print(f"[Writer] normalWriteDelay = {self.normalWriteDelay} ms")
                     self.msleep(self.normalWriteDelay)
                     self.normalWriteDelay = 0
 
@@ -55,6 +64,7 @@ class SerialWriterThread(QThread):
                 self.packetSentSignal.emit()
             else:
                 if self.repeatedWriteDelay != 0 and not self.tempQ.empty():
+                    print(f"[Writer] repeatedWriteDelay = {self.repeatedWriteDelay} ms")
                     self.msleep(self.repeatedWriteDelay)
                     while not self.tempQ.empty():
                         self.writerQ.put(self.tempQ.get())
