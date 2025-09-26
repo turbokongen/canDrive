@@ -32,6 +32,37 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         super(canSnifferGUI, self).__init__()
         self.setupUi(self)
 
+        if hasattr(self, "playbackDelaySpinBox"):
+            self.playbackDelaySpinBox.hide()
+
+        from PyQt5.QtWidgets import QLabel
+        for lbl in self.findChildren(QLabel):
+            if lbl.text().strip().lower().startswith("playback delay"):
+                lbl.hide()
+
+        # Repeated Delay (ms) i Sending-rammen
+        if hasattr(self, "repeatTxDelayValue"):
+            self.repeatTxDelayValue.setRange(0, 60000)  # 0–60000 ms (0–60 s)
+            self.repeatTxDelayValue.setSingleStep(100)  # valgfritt: 100 ms steg
+            try:
+                self.repeatTxDelayValue.setSuffix(" ms")  # valgfritt: vis enhet
+            except Exception:
+                pass
+            # Klem verdien inn i ny range hvis nødvendig
+            if int(self.repeatTxDelayValue.value()) > 60000:
+                self.repeatTxDelayValue.setValue(60000)
+
+        # Repeat timer (for TX)
+        self._repeatArmed = False
+        self.txRepeatTimer = QTimer(self)
+        self.txRepeatTimer.setSingleShot(False)
+        self.txRepeatRow = None
+        self.txRepeatTimer.timeout.connect(self._repeatSendSelected)
+
+        # Koble Sending-kontrollene
+        self.repeatedDelayCheckBox.toggled.connect(self._onRepeatToggled)
+        self.repeatTxDelayValue.valueChanged.connect(self._onRepeatValueChanged)
+
         # --- KWP2000 / ISO-TP (Flow Control only) ---
         self.kwpGroupBox = QGroupBox("KWP2000 / ISO-TP", self.centralwidget)
         self.kwpGroupBoxLayout = QVBoxLayout(self.kwpGroupBox)
@@ -173,6 +204,42 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         #self.txTable.setColumnWidth(4, 600)  # Kolonne 4 = Data i txTable
         self.showMaximized()
 
+    def _onRepeatToggled(self, checked: bool):
+        if checked:
+            # ARM ONLY – ingen start her.
+            self._repeatArmed = True
+            self.txRepeatRow = self.txTable.currentRow() if self.txTable.currentRow() >= 0 else None
+            # Ikke rør writer-trådens repeat her.
+        else:
+            # Slå av og RYDD: stopp timer + tøm sende-buffer
+            self._repeatArmed = False
+            self.txRepeatTimer.stop()
+            self.txRepeatRow = None
+            self.serialWriterThread.setRepeatedWriteDelay(0)  # slå av evt. writer-repeat
+            self.serialWriterThread.clearQueues()  # tøm writer- og temp-kø (sendingbuffer)
+
+    def _onRepeatValueChanged(self, v: int):
+        # Endre intervallet kun hvis timer allerede går
+        if self.txRepeatTimer.isActive():
+            self.txRepeatTimer.start(int(v))
+
+
+    def _onRepeatValueChanged(self, v: int):
+        if self.txRepeatTimer.isActive():
+            self.txRepeatTimer.start(int(v))  # ms
+
+    def _repeatSendSelected(self):
+        row = self.txRepeatRow if self.txRepeatRow is not None else self.txTable.currentRow()
+        if row is None or row < 0:
+            self.txRepeatTimer.stop()
+            self.txRepeatRow = None
+            return
+        id_item = self.txTable.item(row, 0)
+        rtr_item = self.txTable.item(row, 2)
+        ide_item = self.txTable.item(row, 3)
+        data_item = self.txTable.item(row, 4)
+        self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
+
     def onKwpToggle(self, state):
         """KWP/ISO-TP toggle → sender 'K1' (ON) eller 'K0' (OFF) til ESP."""
         try:
@@ -303,15 +370,6 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
 
         txBuf += '\n'
 
-        if row < maxRows - 1:
-            try:
-                t0 = float(self.mainMessageTableWidget.item(row, 0).text())
-                t1 = float(self.mainMessageTableWidget.item(row + 1, 0).text())
-                dt = abs(int((t0 - t1) * (1000 if '.' in str(t0) else 1)))
-                self.serialWriterThread.setNormalWriteDelay(dt)
-            except:
-                self.serialWriterThread.setNormalWriteDelay(10)
-
         self.playBackProgressBar.setValue(int((row / maxRows) * 100))
         self.playbackMainTableIndex += 1
 
@@ -373,7 +431,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             message = f"{can_id:X},{rtr},{ide},{data_str}\n"
             print("SENDER:", message)
 
-            self.serialWriterThread.serial.write(message.encode("ascii"))
+            self.serialWriterThread.write(message)
 
         except Exception as e:
             print(f"Feil ved sending: {e}")
@@ -471,12 +529,22 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
             QMessageBox.warning(self, "No rows selected", "Select a row from table before sending.")
             return
 
+        # Send én gang nå
         id_item = self.txTable.item(row, 0)
         rtr_item = self.txTable.item(row, 2)
-        ide_item = self.txTable.item(row,3)
+        ide_item = self.txTable.item(row, 3)
         data_item = self.txTable.item(row, 4)
-
         self.sendPacketToESP32(id_item, rtr_item, ide_item, data_item)
+
+        # Start repeat KUN hvis armet + fortsatt huket + gyldig delay
+        if self._repeatArmed and self.repeatedDelayCheckBox.isChecked():
+            delay = int(self.repeatTxDelayValue.value())
+            if delay > 0:
+                self.txRepeatRow = row  # lås på raden du nettopp sendte
+                self.txRepeatTimer.start(delay)
+        else:
+            self.txRepeatTimer.stop()
+        # <-- ingen ekstra blokker under her
 
     def fileLoadingFinishedCallback(self):
         self.abortSessionLoadingButton.setEnabled(False)
@@ -641,7 +709,7 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
                 except Exception:
                     self.loadedFileLabel.setText("No file loaded")
 
-                self.fileLoaderThread.enable(path, self.playbackDelaySpinBox.value())
+                self.fileLoaderThread.enable(path, 0)
                 self.fileLoaderThread.start()
                 self.abortSessionLoadingButton.setEnabled(True)
                 return True
@@ -740,6 +808,14 @@ class canSnifferGUI(QMainWindow, canSniffer_ui.Ui_MainWindow):
         self.sendTxTableButton.setEnabled(False)
         self.activeChannelComboBox.setEnabled(True)
         self.setRadioButton(self.rxDataRadioButton, 0)
+        self.serialWriterThread.setRepeatedWriteDelay(0)
+        self.txRepeatTimer.stop()
+        self.txRepeatRow = None
+        self.txRepeatTimer.stop()
+        self.serialWriterThread.setRepeatedWriteDelay(0)
+        self.serialWriterThread.clearQueues()
+
+        # ikke nødvendig å endre _repeatArmed her; brukerens huking får stå
 
     def serialPacketReceiverCallback(self, packet, time):
         if self.startSniffingButton.isEnabled():
